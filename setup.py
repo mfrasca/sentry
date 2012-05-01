@@ -21,7 +21,10 @@ any application.
 :copyright: (c) 2011-2012 by the Sentry Team, see AUTHORS for more details.
 :license: BSD, see LICENSE for more details.
 """
+
 from setuptools import setup, find_packages
+
+import multiprocessing
 
 
 tests_require = [
@@ -41,7 +44,7 @@ install_requires = [
     'django-picklefield>=0.2.0',
     'django-templatetag-sugar>=0.1.0',
     'gunicorn>=0.13.4,<0.14.0',
-    'logan>=0.2.1',
+    'logan>=0.2.2',
     'pynliner>=0.4.0',
     'pytz>=2011n',
     'raven>=1.7.3',
@@ -50,11 +53,11 @@ install_requires = [
 
 setup(
     name='sentry',
-    version='4.0.16',
+    version='4.0.17',
     author='David Cramer',
     author_email='dcramer@gmail.com',
     url='http://github.com/dcramer/sentry',
-    description='A realtime logging an aggregation server.',
+    description='A realtime logging and aggregation server.',
     long_description=__doc__,
     packages=find_packages(exclude=['tests']),
     zip_safe=False,
