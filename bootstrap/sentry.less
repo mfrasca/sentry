@@ -201,11 +201,15 @@ p {
     padding: 20px;
   }
   .btn-toolbar {
-    line-height: @baseLineHeight - 2;
     .clearfix();
     margin: 0;
     list-style: none;
     padding: 15px 20px;
+    .btn-group {
+      .btn {
+        float: none;
+      }
+    }
   }
   section.body .btn-toolbar {
     padding: 15px 0;
@@ -504,13 +508,13 @@ ol.context-line {
 // Vars display
 table.vars {
   .table-condensed;
-  td.code {
-    > pre {
-      background-color: inherit;
-      color: rgba(0,0,0,.75);
-      padding: 1px 3px;
-      border: 0;
-    }
+}
+td.code {
+  > pre {
+    background-color: inherit;
+    color: rgba(0,0,0,.75);
+    padding: 1px 3px;
+    border: 0;
   }
 }
 td table.vars {
@@ -620,6 +624,10 @@ small {
 .controls > .inputs-list label:first-child,
 .controls > .inputs-list label:first-child {
   padding-top: 5px; // has to be padding because margin collaspes
+}
+
+legend {
+  margin-bottom: 18px;
 }
 
 
