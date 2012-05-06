@@ -26,6 +26,9 @@
             <li class="pull-right{% if page == 'plugins' %} active{% endif %}">
                 <a href="{% url sentry-manage-project-plugins project.slug %}">{% trans "Manage Plugins" %} ({{ PLUGINS|length }})</a>
             </li>
+            <li class="pull-right{% if page == 'client_help' %} active{% endif %}">
+                <a href="{% url sentry-project-client-help project.slug %}">{% trans "Client Configuration" %}</a>
+            </li>
         </ul>
         {% block inner %}
             <p>{% trans "Here you can edit project information, as well as control the access list for a project with fine-grained permissions." %}</p>
@@ -49,7 +52,7 @@
                         {% endif %}
                     {% endfor %}
                 </fieldset>
-                <fieldset>
+                <fieldset id="client-security">
                     <div><legend>Client Security</legend></div>
                     {% with form.origins as field %}
                         <p>{% blocktrans with 'https://github.com/lincolnloop/raven-js' as link %}Configure origin URLs which Sentry should accept events from. This is used for communication with client's like <a href="{{ link }}">raven-js</a>.{% endblocktrans %}
@@ -76,7 +79,7 @@
                     {% endif %}
                 </div>
             </form>
-            <div class="page-header">
+            <div class="page-header" id="members">
                 {% if can_add_member %}
                     <a href="{% url sentry-new-team-member project.slug %}" class="btn pull-right btn-primary">{% trans "New Member" %}</a>
                 {% endif %}
@@ -107,18 +110,6 @@
                     {% endfor %}
                 </tbody>
             </table>
-            {% if key %}
-                <div class="page-header">
-                    <h2>{% trans "Client Configuration" %}</h2>
-                </div>
-                {% with key.get_dsn as project_dsn %}
-                    <p>{% trans "To start sending events, configure your client with the following DSN value:" %}</p>
-                    <p><code class="clippy">{{ project_dsn }}</code></p>
-                    <p>{% trans "Choose your platform for quick setup instructions:" %}</p>
-                    {% include "sentry/partial/_client_config.html" %}
-                    <p>{% blocktrans with 'http://sentry.readthedocs.org' as link %}For more information, please see the <a href="{{ link }}">documentation</a>.{% endblocktrans %}</p>
-                {% endwith %}
-            {% endif %}
         {% endblock %}
     </section>
 {% endblock %}
