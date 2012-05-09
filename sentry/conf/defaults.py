@@ -141,9 +141,6 @@ USE_SEARCH = True
 # Default sort option for the group stream
 DEFAULT_SORT_OPTION = 'date'
 
-# Default date cutoff option for the group stream
-DEFAULT_DATE_OPTION = '3d'
-
 # Default sort option for the search results
 SEARCH_DEFAULT_SORT_OPTION = 'date'
 
@@ -158,3 +155,6 @@ USE_JS_CLIENT = False
 
 # The alias for the cache backend (MUST be a compatible backend string for < 1.3)
 CACHE_BACKEND = 'dummy://'
+
+# The maximum number of events which can be requested as JSON
+MAX_JSON_RESULTS=1000

@@ -24,8 +24,14 @@ any application.
 
 from setuptools import setup, find_packages
 
-import multiprocessing
-
+# Hack to prevent stupid "TypeError: 'NoneType' object is not callable" error
+# in multiprocessing/util.py _exit_function when running `python
+# setup.py test` (see
+# http://www.eby-sarna.com/pipermail/peak/2010-May/003357.html)
+try:
+    import multiprocessing
+except ImportError:
+    pass
 
 tests_require = [
     'nose==1.1.2',
@@ -46,6 +52,7 @@ install_requires = [
     'gunicorn>=0.13.4,<0.14.0',
     'logan>=0.2.2',
     'pynliner>=0.4.0',
+    'python-dateutil>=1.5.0,<2.0.0',
     'pytz>=2011n',
     'raven>=1.7.3',
     'South>=0.7',
@@ -53,7 +60,7 @@ install_requires = [
 
 setup(
     name='sentry',
-    version='4.1.0',
+    version='4.1.1',
     author='David Cramer',
     author_email='dcramer@gmail.com',
     url='http://github.com/dcramer/sentry',

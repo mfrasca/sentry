@@ -7,6 +7,8 @@ sentry.utils.dates
 """
 import pytz
 
+from datetime import datetime
+from dateutil.parser import parse
 from django.conf import settings
 from django.db import connections
 
@@ -34,3 +36,20 @@ def get_sql_date_trunc(col, db='default'):
         method = conn.ops.date_trunc_sql('hour', col)
 
     return method
+
+
+def parse_date(datestr, timestr):
+    # format is Y-m-d
+    if not (datestr or timestr):
+        return
+    if not timestr:
+        return datetime.strptime(datestr, '%Y-%m-%d')
+
+    datetimestr = datestr.strip() + ' ' + timestr.strip()
+    try:
+        return datetime.strptime(datetimestr, '%Y-%m-%d %I:%M %p')
+    except:
+        try:
+            return parse(datetimestr)
+        except:
+            return

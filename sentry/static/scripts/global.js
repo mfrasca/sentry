@@ -7,19 +7,6 @@ function varToggle(link, id) {
     return false;
 }
 
-function getQueryParams()
-{
-    var vars = {}, hash;
-    var href = window.location.href;
-    var hashes = href.slice(href.indexOf('?') + 1, (href.indexOf('#') !== -1 ? href.indexOf('#') : href.length)).split('&');
-    for(var i = 0; i < hashes.length; i++)
-    {
-        hash = hashes[i].split('=');
-        vars[hash[0]] = hash[1];
-    }
-    return vars;
-}
-
 (function() {
   /**
    * @private
@@ -299,6 +286,23 @@ if (Sentry === undefined) {
         });
     };
 
+    Sentry.toggle = function(el){
+      var $el = $(el);
+      $el.toggle();
+    };
+
+    Sentry.getQueryParams = function() {
+        var vars = {}, hash;
+        var href = window.location.href;
+        var hashes = href.slice(href.indexOf('?') + 1, (href.indexOf('#') !== -1 ? href.indexOf('#') : href.length)).split('&');
+        for(var i = 0; i < hashes.length; i++)
+        {
+            hash = hashes[i].split('=');
+            vars[hash[0]] = decodeURIComponent(hash[1]).replace(/\+/, ' ');
+        }
+        return vars;
+    };
+
     $(document).ready(function(){
         $('.filter-list').each(function(_, el){
             var $el = $(el);
@@ -361,30 +365,6 @@ if (Sentry === undefined) {
         if (!safeMethod(settings.type) && sameOrigin(settings.url)) {
             xhr.setRequestHeader("X-CSRFToken", getCookie('csrftoken'));
         }
-    });
-
-    $(document).ready(function(){
-        $('.client-platform-list a').click(function(){
-            var $modal = $('#modal');
-            var $this = $(this);
-            var title = $this.attr('title') || $this.text();
-            var href = $this.attr('href');
-
-            $.ajax({
-                dataType: 'html',
-                url: href,
-                success: function(data){
-                    $('.modal-header h3', $modal).html(title + ' <small><a href="' + href + '">expand</a></small>');
-                    $('.modal-body', $modal).html(data);
-                    $modal.modal({
-                        keyboard:true,
-                        backdrop:false
-                    });
-                }
-            });
-
-            return false;
-        });
     });
 
     $('.popup').live('click', function(){
@@ -549,7 +529,7 @@ if (Sentry === undefined) {
             setTimeout(Sentry.realtime.poll, 1000);
             return;
         }
-        data = getQueryParams();
+        data = Sentry.getQueryParams();
         data.view_id = Sentry.realtime.options.viewId || undefined;
         data.cursor = Sentry.realtime.cursor || undefined;
         $.ajax({

@@ -14,16 +14,16 @@ from django.core.urlresolvers import reverse
 from django.http import HttpResponse, \
   HttpResponseRedirect, Http404
 from django.shortcuts import get_object_or_404
-from django.utils.datastructures import SortedDict
 from django.utils.safestring import mark_safe
 
 from sentry.conf import settings
-from sentry.constants import SORT_OPTIONS, SEARCH_SORT_OPTIONS, DATE_OPTIONS, \
-  SORT_CLAUSES, MYSQL_SORT_CLAUSES, SQLITE_SORT_CLAUSES, DATE_VALUES
+from sentry.constants import SORT_OPTIONS, SEARCH_SORT_OPTIONS, \
+  SORT_CLAUSES, MYSQL_SORT_CLAUSES, SQLITE_SORT_CLAUSES
 from sentry.filters import get_filters
 from sentry.models import Group, Event, View, SearchDocument
 from sentry.plugins import plugins
 from sentry.utils import json
+from sentry.utils.dates import parse_date
 from sentry.utils.db import has_trending, get_db_engine
 from sentry.web.decorators import has_access, login_required
 from sentry.web.helpers import render_to_response
@@ -84,13 +84,6 @@ def _get_group_list(request, project, view=None):
     if sort.startswith('accel_') and not has_trending():
         sort = settings.DEFAULT_SORT_OPTION
 
-    if not sort.startswith('accel_'):
-        since = request.GET.get('since', '')
-        if since not in DATE_OPTIONS:
-            since = settings.DEFAULT_DATE_OPTION
-    else:
-        since = None
-
     engine = get_db_engine('default')
     if engine.startswith('sqlite'):
         sort_clause = SQLITE_SORT_CLAUSES.get(sort)
@@ -106,8 +99,30 @@ def _get_group_list(request, project, view=None):
     elif sort.startswith('accel_'):
         event_list = Group.objects.get_accelerated(event_list, minutes=int(sort.split('_', 1)[1]))
 
-    if since in DATE_VALUES:
-        event_list = event_list.filter(last_seen__gte=datetime.datetime.now() - DATE_VALUES[since])
+    date_from = request.GET.get('df')
+    time_from = request.GET.get('tf')
+    date_to = request.GET.get('dt')
+    time_to = request.GET.get('tt')
+
+    today = datetime.datetime.utcnow()
+
+    # date format is Y-m-d
+    if any(x is not None for x in [date_from, time_from, date_to, time_to]):
+        date_from, date_to = parse_date(date_from, time_from), parse_date(date_to, time_to)
+    else:
+        date_from = today - datetime.timedelta(days=3)
+        date_to = None
+
+    if date_from:
+        if not date_to:
+            event_list = event_list.filter(last_seen__gte=date_from)
+        else:
+            event_list = event_list.filter(messagecountbyminute__date__gte=date_from)
+    if date_to:
+        if not date_from:
+            event_list = event_list.filter(last_seen__lte=date_to)
+        else:
+            event_list = event_list.filter(messagecountbyminute__date__lte=date_to)
 
     if sort_clause:
         event_list = event_list.extra(
@@ -120,7 +135,14 @@ def _get_group_list(request, project, view=None):
                 params=[cursor],
             )
 
-    return filters, event_list
+    return {
+        'filters': filters,
+        'event_list': event_list,
+        'date_from': date_from,
+        'date_to': date_to,
+        'today': today,
+        'sort': sort,
+    }
 
 
 @login_required
@@ -200,70 +222,32 @@ def group_list(request, project, view_id=None):
     else:
         view = None
 
-    filters, event_list = _get_group_list(
+    response = _get_group_list(
         request=request,
         project=project,
         view=view,
     )
 
     # XXX: this is duplicate in _get_group_list
-    sort = request.GET.get('sort')
-    if sort not in SORT_OPTIONS:
-        sort = settings.DEFAULT_SORT_OPTION
-    sort_label = SORT_OPTIONS[sort]
-
-    since = request.GET.get('since')
-    if since not in DATE_OPTIONS:
-        since = settings.DEFAULT_DATE_OPTION
-    since_label = DATE_OPTIONS[since]
-
-    today = datetime.datetime.utcnow()
+    sort_label = SORT_OPTIONS[response['sort']]
 
     has_realtime = page == 1
 
     return render_to_response('sentry/groups/group_list.html', {
         'project': project,
-
+        'from_date': response['date_from'],
+        'to_date': response['date_to'],
         'has_realtime': has_realtime,
-        'event_list': event_list,
-        'today': today,
-        'sort': sort,
+        'event_list': response['event_list'],
+        'today': response['today'],
+        'sort': response['sort'],
         'sort_label': sort_label,
-        'since': since,
-        'since_label': since_label,
-        'filters': filters,
+        'filters': response['filters'],
         'view': view,
         'SORT_OPTIONS': SORT_OPTIONS,
-        'DATE_OPTIONS': DATE_OPTIONS,
         'HAS_TRENDING': has_trending(),
         'PAGE': 'dashboard',
     }, request)
-
-
-@login_required
-@has_access
-def group_json(request, project, group_id):
-    group = get_object_or_404(Group, pk=group_id)
-
-    if group.project and group.project != project:
-        return HttpResponse(status_code=404)
-
-    # It's possible that a message would not be created under certain
-    # circumstances (such as a post_save signal failing)
-    event = group.get_latest_event() or Event()
-
-    # We use a SortedDict to keep elements ordered for the JSON serializer
-    data = SortedDict()
-    data['id'] = event.event_id
-    data['checksum'] = event.checksum
-    data['project'] = event.project.slug
-    data['logger'] = event.logger
-    data['level'] = event.get_level_display()
-    data['culprit'] = event.culprit
-    for k, v in sorted(event.data.iteritems()):
-        data[k] = v
-
-    return HttpResponse(json.dumps(data), mimetype='application/json')
 
 
 @login_required
@@ -309,6 +293,27 @@ def group_event_list(request, project, group_id):
 
 @login_required
 @has_access
+def group_event_list_json(request, project, group_id):
+    group = get_object_or_404(Group, pk=group_id)
+
+    if group.project and group.project != project:
+        return HttpResponse(status=404)
+
+    limit = request.GET.get('limit', settings.MAX_JSON_RESULTS)
+    try:
+        limit = int(limit)
+    except ValueError:
+        return HttpResponse('non numeric limit', status=400, mimetype='text/plain')
+    if limit > settings.MAX_JSON_RESULTS:
+        return HttpResponse("too many objects requested", mimetype='text/plain', status=400)
+
+    events = group.event_set.order_by('-id')[:limit]
+
+    return HttpResponse(json.dumps(list(event.as_dict() for event in events)), mimetype='application/json')
+
+
+@login_required
+@has_access
 def group_event_details(request, project, group_id, event_id):
     group = get_object_or_404(Group, pk=group_id)
 
@@ -326,6 +331,24 @@ def group_event_details(request, project, group_id, event_id):
         'json_data': event.data.get('extra', {}),
         'version_data': event.data.get('modules', None),
     }, request)
+
+
+@login_required
+@has_access
+def group_event_details_json(request, project, group_id, event_id_or_latest):
+    group = get_object_or_404(Group, pk=group_id)
+
+    if group.project and group.project != project:
+        return HttpResponse(status=404)
+
+    if event_id_or_latest == 'latest':
+        # It's possible that a message would not be created under certain
+        # circumstances (such as a post_save signal failing)
+        event = group.get_latest_event() or Event()
+    else:
+        event = get_object_or_404(group.event_set, pk=event_id_or_latest)
+
+    return HttpResponse(json.dumps(event.as_dict()), mimetype='application/json')
 
 
 @login_required
