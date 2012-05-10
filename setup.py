@@ -54,13 +54,13 @@ install_requires = [
     'pynliner>=0.4.0',
     'python-dateutil>=1.5.0,<2.0.0',
     'pytz>=2011n',
-    'raven>=1.7.3',
+    'raven>=1.7.6',
     'South>=0.7',
 ]
 
 setup(
     name='sentry',
-    version='4.1.4',
+    version='4.1.6',
     author='David Cramer',
     author_email='dcramer@gmail.com',
     url='http://github.com/dcramer/sentry',
