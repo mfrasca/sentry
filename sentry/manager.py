@@ -22,6 +22,7 @@ from django.db.models.signals import post_save, post_delete, post_init, class_pr
 from django.utils.encoding import force_unicode, smart_str
 
 from raven.utils.encoding import to_string
+from sentry import app
 from sentry.conf import settings
 from sentry.processors.base import send_group_processors
 from sentry.signals import regression_signal
@@ -191,7 +192,7 @@ class BaseManager(models.Manager):
 
             return retval
 
-    def get_or_create(self, **kwargs):
+    def get_or_create(self, _cache=False, **kwargs):
         """
         A modified version of Django's get_or_create which will create a distributed
         lock (using the cache backend) whenever it hits the create clause.
@@ -200,6 +201,8 @@ class BaseManager(models.Manager):
 
         # before locking attempt to fetch the instance
         try:
+            if _cache:
+                return self.get_from_cache(**kwargs), False
             return self.get(**kwargs), False
         except self.model.DoesNotExist:
             pass
@@ -281,17 +284,6 @@ def time_limit(silence):  # ~ 3600 per hour
     return settings.MAX_SAMPLE_TIME
 
 
-class ModuleProxyCache(dict):
-    def __missing__(self, key):
-        module, class_name = key.rsplit('.', 1)
-
-        handler = getattr(__import__(module, {}, {}, [class_name], -1), class_name)
-
-        self[key] = handler
-
-        return handler
-
-
 class ChartMixin(object):
     def get_chart_data(self, instance, max_days=90):
         if hasattr(instance, '_state'):
@@ -329,10 +321,6 @@ class ChartMixin(object):
 
 class GroupManager(BaseManager, ChartMixin):
     use_for_related_fields = True
-
-    def __init__(self, *args, **kwargs):
-        super(GroupManager, self).__init__(*args, **kwargs)
-        self.module_cache = ModuleProxyCache()
 
     @transaction.commit_on_success
     def from_kwargs(self, project, **kwargs):
@@ -403,6 +391,7 @@ class GroupManager(BaseManager, ChartMixin):
 
                 if not viewhandler.ref:
                     viewhandler.ref = View.objects.get_or_create(
+                        _cache=True,
                         path=path,
                         defaults=dict(
                             verbose_name=viewhandler.verbose_name,
@@ -464,7 +453,8 @@ class GroupManager(BaseManager, ChartMixin):
         return event
 
     def _create_group(self, event, **kwargs):
-        from sentry.models import FilterValue, STATUS_RESOLVED
+        from sentry.models import ProjectCountByMinute, MessageCountByMinute, FilterValue, \
+          MessageFilterValue, STATUS_RESOLVED
 
         date = event.datetime
         time_spent = event.time_spent
@@ -490,27 +480,37 @@ class GroupManager(BaseManager, ChartMixin):
                 g.delete()
             group, is_new = groups[0], False
 
+        update_kwargs = {
+            'times_seen': 1,
+        }
+        if time_spent:
+            update_kwargs.update({
+                'time_spent_total': time_spent,
+                'time_spent_count': 1,
+            })
+
         if not is_new:
             if group.status == STATUS_RESOLVED:
                 # Group has changed from resolved -> unresolved
                 is_new = True
             silence_timedelta = date - group.last_seen
             silence = silence_timedelta.days * 86400 + silence_timedelta.seconds
-            update_kwargs = {
+
+            app.buffer.incr(self.model, update_kwargs, {
+                'pk': group.pk,
+            }, {
                 'status': 0,
                 'last_seen': date,
-                'times_seen': F('times_seen') + 1,
                 'score': ScoreClause(group),
-            }
-            if time_spent:
-                update_kwargs.update({
-                    'time_spent_total': F('time_spent_total') + time_spent,
-                    'time_spent_count': F('time_spent_count') + 1,
-                })
-            group.update(**update_kwargs)
+            })
         else:
+            # TODO: this update is useless
             group.update(score=ScoreClause(group))
             silence = 0
+
+            # We need to commit because the queue can run too fast and hit
+            # an issue with the group not existing before the buffers run
+            transaction.commit_unless_managed(using=group._state.db)
 
         # Determine if we've sampled enough data to store this event
         if not settings.SAMPLE_DATA or group.times_seen % min(count_limit(group.times_seen), time_limit(silence)) == 0:
@@ -525,36 +525,20 @@ class GroupManager(BaseManager, ChartMixin):
             minutes = date.minute
         normalized_datetime = date.replace(second=0, microsecond=0, minute=minutes)
 
-        update_kwargs = {
-            'times_seen': F('times_seen') + 1,
-        }
-        if time_spent:
-            update_kwargs.update({
-                'time_spent_total': F('time_spent_total') + time_spent,
-                'time_spent_count': F('time_spent_count') + 1,
-            })
+        app.buffer.incr(MessageCountByMinute, update_kwargs, {
+            'group': group,
+            'project': project,
+            'date': normalized_datetime,
+        })
 
-        group.messagecountbyminute_set.create_or_update(
-            project=project,
-            date=normalized_datetime,
-            defaults=update_kwargs
-        )
-
-        project.projectcountbyminute_set.create_or_update(
-            date=normalized_datetime,
-            defaults=update_kwargs
-        )
-
-        http = event.interfaces.get('sentry.interfaces.Http')
-        if http:
-            url = http.url
-        else:
-            url = None
+        app.buffer.incr(ProjectCountByMinute, update_kwargs, {
+            'project': project,
+            'date': normalized_datetime,
+        })
 
         for key, value in (
                 ('server_name', event.server_name),
                 ('site', event.site),
-                ('url', url),
                 ('logger', event.logger),
             ):
             if not value:
@@ -566,20 +550,16 @@ class GroupManager(BaseManager, ChartMixin):
                 value=value,
             )
 
-            affected = group.messagefiltervalue_set.filter(
-                project=project,
-                key=key,
-                value=value,
-            ).update(times_seen=F('times_seen') + 1, last_seen=date)
-            if not affected:
-                group.messagefiltervalue_set.create(
-                    project=project,
-                    key=key,
-                    value=value,
-                    times_seen=1,
-                    last_seen=date,
-                    first_seen=date,
-                )
+            app.buffer.incr(MessageFilterValue, {
+                'times_seen': 1,
+            }, {
+                'group': group,
+                'project': project,
+                'key': key,
+                'value': value,
+            }, {
+                'last_seen': date,
+            })
 
         return group, is_new, is_sample
 

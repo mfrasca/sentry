@@ -31,8 +31,8 @@ class UserField(CharField):
                 attrs = {}
             if 'placeholder' not in attrs:
                 attrs['placeholder'] = 'username'
-            if isinstance(value, int):
-                value = unicode(User.objects.get(pk=value))
+            if isinstance(value, (int, long)):
+                value = User.objects.get(pk=value).username
             return super(UserField.widget, self).render(name, value, attrs)
 
     def clean(self, value):

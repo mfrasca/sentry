@@ -34,11 +34,14 @@ except ImportError:
     pass
 
 tests_require = [
-    'nose==1.1.2',
     'django-nose==0.1.3',
-    'mock==0.8.0',
     'eventlet==0.9.16',
+    'nose==1.1.2',
+    'nydus==0.8.2',
+    'mock==0.8.0',
+    'redis',
 ]
+
 
 install_requires = [
     'cssutils>=0.9.9',
@@ -55,12 +58,13 @@ install_requires = [
     'python-dateutil>=1.5.0,<2.0.0',
     'pytz>=2011n',
     'raven>=1.7.6',
+    'simplejson>=2.3.0,<2.5.0',
     'South>=0.7',
 ]
 
 setup(
     name='sentry',
-    version='4.1.6',
+    version='4.2.1',
     author='David Cramer',
     author_email='dcramer@gmail.com',
     url='http://github.com/dcramer/sentry',
