@@ -7,7 +7,7 @@ sentry.buffer.base
 """
 
 from django.db.models import F
-from sentry.utils.queue import maybe_delay
+from sentry.utils.queue import maybe_async
 from sentry.tasks.process_buffer import process_incr
 
 
@@ -24,14 +24,19 @@ class Buffer(object):
     This is useful in situations where a single event might be happening so fast that the queue cant
     keep up with the updates.
     """
-    def __init__(self, **options):
-        pass
+    def __init__(self, delay=5, **options):
+        self.delay = delay
 
     def incr(self, model, columns, filters, extra=None):
         """
         >>> incr(Group, columns={'times_seen': 1}, filters={'pk': group.pk})
         """
-        maybe_delay(process_incr, model=model, columns=columns, filters=filters, extra=extra)
+        maybe_async(process_incr, kwargs={
+            'model': model,
+            'columns': columns,
+            'filters': filters,
+            'extra': extra,
+        }, countdown=self.delay)
 
     def process(self, model, columns, filters, extra=None):
         update_kwargs = dict((c, F(c) + v) for c, v in columns.iteritems())

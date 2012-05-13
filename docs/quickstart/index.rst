@@ -102,21 +102,8 @@ configuration, as well as the default Sentry configuration values. It will use S
 .. note:: We highly recommend using the gevent worker class. To do this, simply ``pip install gevent`` and
           adjust the worker_class setting in ``SENTRY_WEB_OPTIONS``.
 
-Running Migrations
-------------------
-
-If you changed from the default SQLite database, make sure you start by creating the database Sentry
-is expecting. Once done, you can create the initial database using the ``upgrade`` command::
-
-    sentry --config=/etc/sentry.conf.py upgrade
-
-All schema changes and database upgrades are handled via the ``upgrade`` command, and this is the first
-thing you'll want to run when upgrading to future versions of Sentry.
-
-.. note:: Internally, this uses `South <south.aeracode.org>`_ to manage migrations.
-
-Optional: Configure Outbound Mail
----------------------------------
+Configure Outbound Mail
+-----------------------
 
 Several settings exist as part of the Django framework which will configure your outbound mail server. For the
 standard implementation, using a simple SMTP server, you can simply configure the following::
@@ -131,6 +118,29 @@ Being that Django is a pluggable framework, you also have the ability to specify
 `official Django documentation <https://docs.djangoproject.com/en/1.3/topics/email/?from=olddocs#email-backends>`_ for
 more information on alterantive backends.
 
+Running Migrations
+------------------
+
+If you changed from the default SQLite database, make sure you start by creating the database Sentry
+is expecting. Once done, you can create the initial database using the ``upgrade`` command::
+
+    sentry --config=/etc/sentry.conf.py upgrade
+
+**It's very important that you create the default superuser through the upgrade process. If you do not, there is
+a good chance you'll see issues in your initial install.**
+
+If you did not create the user on the first run, you can correct this by doing the following::
+
+    # create a new user
+    sentry --config=/etc/sentry.conf.py createsuperuser
+
+    # run the automated repair script
+    sentry --config=/etc/sentry.conf.py repair --owner=<username>
+
+All schema changes and database upgrades are handled via the ``upgrade`` command, and this is the first
+thing you'll want to run when upgrading to future versions of Sentry.
+
+.. note:: Internally, this uses `South <http://south.aeracode.org>`_ to manage database migrations.
 
 Starting the Web Service
 ------------------------
@@ -148,8 +158,8 @@ you can pass that via the --config option.
 
 You should now be able to test the web service by visiting `http://localhost:9000/`.
 
-Configuring a Proxy
--------------------
+Setup a Reverse Proxy
+---------------------
 
 By default, Sentry runs on port 9000. Even if you change this, under normal conditions you won't be able to bind to
 port 80. To get around this (and to avoid running Sentry as a privileged user, which you shouldn't), we recommend
